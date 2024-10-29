@@ -49,4 +49,4 @@ The resulting times will be entered into the leaderboard.
 5. Visit http://contest.db.in.tum.de/ to see your result.
 
 Make sure your builds are not failing! <br/>
-*Left Sidebar > CI /CD > Pipelines*
+```Left Sidebar > Build > Pipelines```
