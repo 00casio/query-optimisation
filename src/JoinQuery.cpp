@@ -37,7 +37,12 @@ size_t JoinQuery::avg(std::string segmentParam)
     std::string line;
     std::unordered_set<std::string> custkeys;
     std::unordered_map<std::string, std::string> orderToCustkey;
-    
+    customerFile.clear();
+    customerFile.seekg(0, std::ios::beg);
+    orderFile.clear();
+    orderFile.seekg(0, std::ios::beg);
+    lineitemFile.clear();
+    lineitemFile.seekg(0, std::ios::beg);
 
 
     while (std::getline(customerFile, line)) {
