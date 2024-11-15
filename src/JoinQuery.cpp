@@ -37,7 +37,7 @@ size_t JoinQuery::avg(std::string segmentParam)
 {
     std::unordered_set<std::string> custkeys;
     std::unordered_map<std::string, std::string> orderToCustkey;
-    size_t thread_count = std::thread::hardware_concurrency();
+    size_t thread_count = 1;//std::thread::hardware_concurrency();
     std::cout << "Thread count: " << thread_count << std::endl;
 
     size_t customerFileSize = customerFile.seekg(0, std::ios::end).tellg();
