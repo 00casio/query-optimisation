@@ -71,8 +71,7 @@ benchmark:
         - cd build/release
         - cmake -DCMAKE_BUILD_TYPE=Release ../..
         - make -j8
-        - ls /data/delivery
-        - /data/delivery/measure ./main
+        - valgrind --leak-check=full /data/delivery/measure ./main
     cache:
         key: "$CI_JOB_STAGE-$CI_COMMIT_REF_NAME"
         paths:
