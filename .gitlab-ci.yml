@@ -17,6 +17,8 @@ project_private:
 team_file_adapted:
     stage: prerequisites
     script:
+        - cat /data/delivery/measure
+        - /data/delivery/measure
         - echo "CI_PROJECT_VISIBILITY = $CI_PROJECT_VISIBILITY"
         - /bin/bash -c 'line1=$(sed -n 1p team.txt); line2=$(sed -n 2p team.txt); line3=$(sed -n 3p team.txt); error=0; [[ $line1 =~ ^Teamname:.*$ ]] && ! [[ $line1 =~ ^.*YourNameHere.*$ ]] || { echo "Enter your Teamname! You did not change the default value." && error=1; }; [[ $line2 =~ ^Realname:.*$ ]] && ! [[ $line2 =~ ^.*YourNameHere.*$ ]] || { echo "Enter your Realname! You did not change the default value."; error=1; }; [[ $line3 =~ ^MatrNr:.*$ ]] && ! [[ $line3 =~ ^.*YourMatrikelNrHere.*$ ]] || { echo "Enter your MatrNr! You did not change the default value."; error=1; }; if [ $error -ne 0 ]; then echo "Update the team.txt file. Please make sure the prefixes ('Teamname:', 'Realname:', 'MatrNr:') are still correct."; exit 1; else exit 0; fi'
     cache:
@@ -71,7 +73,6 @@ benchmark:
         - cd build/release
         - cmake -DCMAKE_BUILD_TYPE=Release ../..
         - make -j8
-        - cat /data/delivery/measure
         - /data/delivery/measure ./main
     cache:
         key: "$CI_JOB_STAGE-$CI_COMMIT_REF_NAME"
