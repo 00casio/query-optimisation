@@ -8,6 +8,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <unordered_set>
+#include <thread>
 #include <mutex>
 
 std::mutex customerMutex;
@@ -38,51 +39,128 @@ size_t JoinQuery::avg(std::string segmentParam)
     std::unordered_set<std::string> custkeys;
     std::unordered_map<std::string, std::string> orderToCustkey;
 
-    // Process the customer file
-    customerFile.clear();
-    customerFile.seekg(0, std::ios::beg);
-    std::string line;
-    while (std::getline(customerFile, line)) {
-        std::stringstream ss(line);
-        std::string item;
-        std::vector<std::string> columns;
-        while (std::getline(ss, item, '|')) {
-            columns.push_back(item);
-        }
-        if (columns.size() > 6 && columns[6] == segmentParam) {
-            custkeys.insert(columns[0]);
-        }
+    // Process the customer file with two threads
+    size_t customerFileSize = customerFile.seekg(0, std::ios::end).tellg();
+    size_t customerChunkSize = customerFileSize / 2;
+
+    std::vector<std::thread> customerThreads;
+    for (size_t i = 0; i < 2; ++i) {
+        customerThreads.emplace_back([&, i, customerPath = this->customerPath] {
+            std::ifstream customerFileThread(customerPath);
+            if (!customerFileThread.is_open()) {
+                std::cerr << "Error: Unable to open customer file in thread: " << customerPath << "\n";
+                return;
+            }
+            size_t start = i * customerChunkSize;
+            customerFileThread.seekg(start);
+            if (i > 0) {
+                char c;
+                while (customerFileThread.get(c) && c != '\n') {
+                    start++;
+                }
+            }
+            size_t end = (i == 1) ? customerFileSize : (i + 1) * customerChunkSize;
+            std::string line;
+            while (customerFileThread.tellg() < end && std::getline(customerFileThread, line)) {
+                std::stringstream ss(line);
+                std::string item;
+                std::vector<std::string> columns;
+                while (std::getline(ss, item, '|')) {
+                    columns.push_back(item);
+                }
+                if (columns.size() > 6 && columns[6] == segmentParam) {
+                    std::lock_guard<std::mutex> lock(customerMutex);
+                    custkeys.insert(columns[0]);
+                }
+            }
+        });
     }
 
-    orderFile.clear();
-    orderFile.seekg(0, std::ios::beg);
-    while (std::getline(orderFile, line)) {
-        std::stringstream ss(line);
-        std::string item;
-        std::vector<std::string> columns;
-        while (std::getline(ss, item, '|')) {
-            columns.push_back(item);
-        }
-        if (columns.size() > 1 && custkeys.find(columns[1]) != custkeys.end()) {
-            orderToCustkey[columns[0]] = columns[1];
-        }
+    for (auto& thread : customerThreads) {
+        thread.join();
     }
 
-    lineitemFile.clear();
-    lineitemFile.seekg(0, std::ios::beg);
+    size_t orderFileSize = orderFile.seekg(0, std::ios::end).tellg();
+    size_t orderChunkSize = orderFileSize / 2;
+
+    std::vector<std::thread> orderThreads;
+    for (size_t i = 0; i < 2; ++i) {
+        orderThreads.emplace_back([&, i, orderPath = this->orderPath] {
+            std::ifstream orderFileThread(orderPath);
+            if (!orderFileThread.is_open()) {
+                std::cerr << "Error: Unable to open order file in thread: " << orderPath << "\n";
+                return;
+            }
+            size_t start = i * orderChunkSize;
+            orderFileThread.seekg(start);
+            if (i > 0) {
+                char c;
+                while (orderFileThread.get(c) && c != '\n') {
+                    start++;
+                }
+            }
+            size_t end = (i == 1) ? orderFileSize : (i + 1) * orderChunkSize;
+            std::string line;
+            while (orderFileThread.tellg() < end && std::getline(orderFileThread, line)) {
+                std::stringstream ss(line);
+                std::string item;
+                std::vector<std::string> columns;
+                while (std::getline(ss, item, '|')) {
+                    columns.push_back(item);
+                }
+                if (columns.size() > 1 && custkeys.find(columns[1]) != custkeys.end()) {
+                    std::lock_guard<std::mutex> lock(orderMutex);
+                    orderToCustkey[columns[0]] = columns[1];
+                }
+            }
+        });
+    }
+
+    for (auto& thread : orderThreads) {
+        thread.join();
+    }
+
+    size_t lineitemFileSize = lineitemFile.seekg(0, std::ios::end).tellg();
+    size_t lineitemChunkSize = lineitemFileSize / 2;
+
     double totalQuantity = 0.0;
     size_t count = 0;
-    while (std::getline(lineitemFile, line)) {
-        std::stringstream ss(line);
-        std::string item;
-        std::vector<std::string> columns;
-        while (std::getline(ss, item, '|')) {
-            columns.push_back(item);
-        }
-        if (columns.size() > 1 && orderToCustkey.find(columns[0]) != orderToCustkey.end()) {
-            totalQuantity += std::stod(columns[4]);
-            count++;
-        }
+    std::vector<std::thread> lineitemThreads;
+    for (size_t i = 0; i < 2; ++i) {
+        lineitemThreads.emplace_back([&, i, lineitemPath = this->lineitemPath] {
+            std::ifstream lineitemFileThread(lineitemPath);
+            if (!lineitemFileThread.is_open()) {
+                std::cerr << "Error: Unable to open lineitem file in thread: " << lineitemPath << "\n";
+                return;
+            }
+            size_t start = i * lineitemChunkSize;
+            lineitemFileThread.seekg(start);
+            if (i > 0) {
+                char c;
+                while (lineitemFileThread.get(c) && c != '\n') {
+                    start++;
+                }
+            }
+            size_t end = (i == 1) ? lineitemFileSize : (i + 1) * lineitemChunkSize;
+            std::string line;
+            while (lineitemFileThread.tellg() < end && std::getline(lineitemFileThread, line)) {
+                std::stringstream ss(line);
+                std::string item;
+                std::vector<std::string> columns;
+                while (std::getline(ss, item, '|')) {
+                    columns.push_back(item);
+                }
+                if (columns.size() > 1 && orderToCustkey.find(columns[0]) != orderToCustkey.end()) {
+                    std::lock_guard<std::mutex> lock(lineitemMutex);
+                    totalQuantity += std::stod(columns[4]);
+                    count++;
+                }
+            }
+        });
+    }
+
+    for (auto& thread : lineitemThreads) {
+        thread.join();
     }
 
     if (count == 0) return 0;
@@ -91,7 +169,7 @@ size_t JoinQuery::avg(std::string segmentParam)
 
 size_t JoinQuery::lineCount(std::string rel)
 {
-   std::ifstream relation(rel);
+    std::ifstream relation(rel);
    assert(relation);  // make sure the provided string references a file
    size_t n = 0;
    for (std::string line; std::getline(relation, line);) n++;
