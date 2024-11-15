@@ -37,7 +37,7 @@ size_t JoinQuery::avg(std::string segmentParam)
 {
     std::unordered_set<std::string> custkeys;
     std::unordered_map<std::string, std::string> orderToCustkey;
-    size_t thread_count = 1;//std::thread::hardware_concurrency();
+    size_t thread_count = std::thread::hardware_concurrency();
     std::cout << "Thread count: " << thread_count << std::endl;
 
     size_t customerFileSize = customerFile.seekg(0, std::ios::end).tellg();
@@ -45,8 +45,8 @@ size_t JoinQuery::avg(std::string segmentParam)
 
     std::vector<std::thread> customerThreads;
     for (size_t i = 0; i < thread_count; ++i) {
-        customerThreads.emplace_back([&, i, this] {
-            std::ifstream customerFileThread(this->customerPath);
+        customerThreads.emplace_back([&, i, customerPath = this->customerPath] {
+            std::ifstream customerFileThread(customerPath);
             size_t start = i * customerChunkSize;
             customerFileThread.seekg(start);
             if (i > 0) {
@@ -81,8 +81,8 @@ size_t JoinQuery::avg(std::string segmentParam)
 
     std::vector<std::thread> orderThreads;
     for (size_t i = 0; i < thread_count; ++i) {
-        orderThreads.emplace_back([&, i, this] {
-            std::ifstream orderFileThread(this->orderPath);
+        orderThreads.emplace_back([&, i, orderPath = this->orderPath] {
+            std::ifstream orderFileThread(orderPath);
             size_t start = i * orderChunkSize;
             orderFileThread.seekg(start);
             if (i > 0) {
@@ -119,8 +119,8 @@ size_t JoinQuery::avg(std::string segmentParam)
     size_t count = 0;
     std::vector<std::thread> lineitemThreads;
     for (size_t i = 0; i < thread_count; ++i) {
-        lineitemThreads.emplace_back([&, i, this] {
-            std::ifstream lineitemFileThread(this->lineitemPath);
+        lineitemThreads.emplace_back([&, i, lineitemPath = this->lineitemPath] {
+            std::ifstream lineitemFileThread(lineitemPath);
             size_t start = i * lineitemChunkSize;
             lineitemFileThread.seekg(start);
             if (i > 0) {
