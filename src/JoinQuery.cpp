@@ -16,23 +16,24 @@ std::mutex orderMutex;
 std::mutex lineitemMutex;
 
 JoinQuery::JoinQuery(std::string lineitemPath, std::string orderPath, std::string customerPath)
-    : lineitemFile(lineitemPath), orderFile(orderPath), customerFile(customerPath),
-      lineitemPath(lineitemPath), orderPath(orderPath), customerPath(customerPath) {
+    : lineitemPath(lineitemPath), orderPath(orderPath), customerPath(customerPath),
+      lineitemFile(lineitemPath), orderFile(orderPath), customerFile(customerPath) {
     if (!lineitemFile.is_open()) {
-        std::cerr << "Error: Unable to open lineitem file.\n";
+        std::cerr << "Error: Unable to open lineitem file: " << lineitemPath << "\n";
         exit(1);
     }
 
     if (!orderFile.is_open()) {
-        std::cerr << "Error: Unable to open orders file.\n";
+        std::cerr << "Error: Unable to open orders file: " << orderPath << "\n";
         exit(1);
     }
 
     if (!customerFile.is_open()) {
-        std::cerr << "Error: Unable to open customer file.\n";
+        std::cerr << "Error: Unable to open customer file: " << customerPath << "\n";
         exit(1);
     }
 }
+
 size_t JoinQuery::avg(std::string segmentParam)
 {
     std::unordered_set<std::string> custkeys;
@@ -47,6 +48,10 @@ size_t JoinQuery::avg(std::string segmentParam)
     for (size_t i = 0; i < thread_count; ++i) {
         customerThreads.emplace_back([&, i, customerPath = this->customerPath] {
             std::ifstream customerFileThread(customerPath);
+            if (!customerFileThread.is_open()) {
+                std::cerr << "Error: Unable to open customer file in thread: " << customerPath << "\n";
+                return;
+            }
             size_t start = i * customerChunkSize;
             customerFileThread.seekg(start);
             if (i > 0) {
@@ -57,7 +62,7 @@ size_t JoinQuery::avg(std::string segmentParam)
             }
             size_t end = (i == thread_count - 1) ? customerFileSize : (i + 1) * customerChunkSize;
             std::string line;
-            while (customerFileThread.tellg() < end && std::getline(customerFileThread, line)) {
+            while (customerFileThread.tellg() < static_cast<std::streamoff>(end) && std::getline(customerFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
                 std::vector<std::string> columns;
@@ -83,6 +88,10 @@ size_t JoinQuery::avg(std::string segmentParam)
     for (size_t i = 0; i < thread_count; ++i) {
         orderThreads.emplace_back([&, i, orderPath = this->orderPath] {
             std::ifstream orderFileThread(orderPath);
+            if (!orderFileThread.is_open()) {
+                std::cerr << "Error: Unable to open order file in thread: " << orderPath << "\n";
+                return;
+            }
             size_t start = i * orderChunkSize;
             orderFileThread.seekg(start);
             if (i > 0) {
@@ -93,7 +102,7 @@ size_t JoinQuery::avg(std::string segmentParam)
             }
             size_t end = (i == thread_count - 1) ? orderFileSize : (i + 1) * orderChunkSize;
             std::string line;
-            while (orderFileThread.tellg() < end && std::getline(orderFileThread, line)) {
+            while (orderFileThread.tellg() < static_cast<std::streamoff>(end) && std::getline(orderFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
                 std::vector<std::string> columns;
@@ -121,6 +130,10 @@ size_t JoinQuery::avg(std::string segmentParam)
     for (size_t i = 0; i < thread_count; ++i) {
         lineitemThreads.emplace_back([&, i, lineitemPath = this->lineitemPath] {
             std::ifstream lineitemFileThread(lineitemPath);
+            if (!lineitemFileThread.is_open()) {
+                std::cerr << "Error: Unable to open lineitem file in thread: " << lineitemPath << "\n";
+                return;
+            }
             size_t start = i * lineitemChunkSize;
             lineitemFileThread.seekg(start);
             if (i > 0) {
@@ -131,7 +144,7 @@ size_t JoinQuery::avg(std::string segmentParam)
             }
             size_t end = (i == thread_count - 1) ? lineitemFileSize : (i + 1) * lineitemChunkSize;
             std::string line;
-            while (lineitemFileThread.tellg() < end && std::getline(lineitemFileThread, line)) {
+            while (lineitemFileThread.tellg() < static_cast<std::streamoff>(end) && std::getline(lineitemFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
                 std::vector<std::string> columns;
