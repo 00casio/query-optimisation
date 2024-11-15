@@ -46,8 +46,12 @@ class JoinQuery
    size_t lineCount(std::string rel);
 
    private:
+    std::string lineitemPath;
+    std::string orderPath;
+    std::string customerPath;
     std::ifstream lineitemFile;
     std::ifstream orderFile;
     std::ifstream customerFile;
+
 };
 //---------------------------------------------------------------------------
