@@ -38,13 +38,14 @@ size_t JoinQuery::avg(std::string segmentParam)
 {
     std::unordered_set<std::string> custkeys;
     std::unordered_map<std::string, std::string> orderToCustkey;
+    size_t thread_count = std::thread::hardware_concurrency();
 
-    // Process the customer file with two threads
+    // Process the customer file in parallel
     size_t customerFileSize = customerFile.seekg(0, std::ios::end).tellg();
-    size_t customerChunkSize = customerFileSize / 2;
+    size_t customerChunkSize = customerFileSize / thread_count;
 
     std::vector<std::thread> customerThreads;
-    for (size_t i = 0; i < 2; ++i) {
+    for (size_t i = 0; i < thread_count; ++i) {
         customerThreads.emplace_back([&, i, customerPath = this->customerPath] {
             std::ifstream customerFileThread(customerPath);
             if (!customerFileThread.is_open()) {
@@ -59,12 +60,13 @@ size_t JoinQuery::avg(std::string segmentParam)
                     start++;
                 }
             }
-            size_t end = (i == 1) ? customerFileSize : (i + 1) * customerChunkSize;
+            size_t end = (i == thread_count - 1) ? customerFileSize : (i + 1) * customerChunkSize;
             std::string line;
             while (customerFileThread.tellg() < end && std::getline(customerFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
                 std::vector<std::string> columns;
+                columns.reserve(8); // Assuming there are at least 8 columns
                 while (std::getline(ss, item, '|')) {
                     columns.push_back(item);
                 }
@@ -81,10 +83,10 @@ size_t JoinQuery::avg(std::string segmentParam)
     }
 
     size_t orderFileSize = orderFile.seekg(0, std::ios::end).tellg();
-    size_t orderChunkSize = orderFileSize / 2;
+    size_t orderChunkSize = orderFileSize / thread_count;
 
     std::vector<std::thread> orderThreads;
-    for (size_t i = 0; i < 2; ++i) {
+    for (size_t i = 0; i < thread_count; ++i) {
         orderThreads.emplace_back([&, i, orderPath = this->orderPath] {
             std::ifstream orderFileThread(orderPath);
             if (!orderFileThread.is_open()) {
@@ -99,12 +101,13 @@ size_t JoinQuery::avg(std::string segmentParam)
                     start++;
                 }
             }
-            size_t end = (i == 1) ? orderFileSize : (i + 1) * orderChunkSize;
+            size_t end = (i == thread_count - 1) ? orderFileSize : (i + 1) * orderChunkSize;
             std::string line;
             while (orderFileThread.tellg() < end && std::getline(orderFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
                 std::vector<std::string> columns;
+                columns.reserve(2);
                 while (std::getline(ss, item, '|')) {
                     columns.push_back(item);
                 }
@@ -121,12 +124,12 @@ size_t JoinQuery::avg(std::string segmentParam)
     }
 
     size_t lineitemFileSize = lineitemFile.seekg(0, std::ios::end).tellg();
-    size_t lineitemChunkSize = lineitemFileSize / 2;
+    size_t lineitemChunkSize = lineitemFileSize / thread_count;
 
     double totalQuantity = 0.0;
     size_t count = 0;
     std::vector<std::thread> lineitemThreads;
-    for (size_t i = 0; i < 2; ++i) {
+    for (size_t i = 0; i < thread_count; ++i) {
         lineitemThreads.emplace_back([&, i, lineitemPath = this->lineitemPath] {
             std::ifstream lineitemFileThread(lineitemPath);
             if (!lineitemFileThread.is_open()) {
@@ -141,12 +144,13 @@ size_t JoinQuery::avg(std::string segmentParam)
                     start++;
                 }
             }
-            size_t end = (i == 1) ? lineitemFileSize : (i + 1) * lineitemChunkSize;
+            size_t end = (i == thread_count - 1) ? lineitemFileSize : (i + 1) * lineitemChunkSize;
             std::string line;
             while (lineitemFileThread.tellg() < end && std::getline(lineitemFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
                 std::vector<std::string> columns;
+                columns.reserve(5); 
                 while (std::getline(ss, item, '|')) {
                     columns.push_back(item);
                 }
