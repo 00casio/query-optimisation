@@ -62,6 +62,7 @@ size_t JoinQuery::avg(std::string segmentParam)
             }
             size_t end = (i == thread_count - 1) ? customerFileSize : (i + 1) * customerChunkSize;
             std::string line;
+            std::unordered_set<std::string> localCustkeys;
             while (customerFileThread.tellg() < end && std::getline(customerFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
@@ -75,9 +76,12 @@ size_t JoinQuery::avg(std::string segmentParam)
                     }
                 }
                 if (segment == segmentParam) {
-                    std::lock_guard<std::mutex> lock(customerMutex);
-                    custkeys.insert(custkey);
+                    localCustkeys.insert(custkey);
                 }
+            }
+            {
+                std::lock_guard<std::mutex> lock(customerMutex);
+                custkeys.insert(localCustkeys.begin(), localCustkeys.end());
             }
         });
     }
@@ -107,6 +111,7 @@ size_t JoinQuery::avg(std::string segmentParam)
             }
             size_t end = (i == thread_count - 1) ? orderFileSize : (i + 1) * orderChunkSize;
             std::string line;
+            std::unordered_map<std::string, std::string> localOrderToCustkey;
             while (orderFileThread.tellg() < end && std::getline(orderFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
@@ -120,9 +125,12 @@ size_t JoinQuery::avg(std::string segmentParam)
                     }
                 }
                 if (custkeys.find(custkey) != custkeys.end()) {
-                    std::lock_guard<std::mutex> lock(orderMutex);
-                    orderToCustkey[orderkey] = custkey;
+                    localOrderToCustkey[orderkey] = custkey;
                 }
+            }
+            {
+                std::lock_guard<std::mutex> lock(orderMutex);
+                orderToCustkey.insert(localOrderToCustkey.begin(), localOrderToCustkey.end());
             }
         });
     }
@@ -154,6 +162,8 @@ size_t JoinQuery::avg(std::string segmentParam)
             }
             size_t end = (i == thread_count - 1) ? lineitemFileSize : (i + 1) * lineitemChunkSize;
             std::string line;
+            double localTotalQuantity = 0.0;
+            size_t localCount = 0;
             while (lineitemFileThread.tellg() < end && std::getline(lineitemFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
@@ -167,10 +177,14 @@ size_t JoinQuery::avg(std::string segmentParam)
                     }
                 }
                 if (orderToCustkey.find(orderkey) != orderToCustkey.end()) {
-                    std::lock_guard<std::mutex> lock(lineitemMutex);
-                    totalQuantity += std::stod(quantity);
-                    count++;
+                    localTotalQuantity += std::stod(quantity);
+                    localCount++;
                 }
+            }
+            {
+                std::lock_guard<std::mutex> lock(lineitemMutex);
+                totalQuantity += localTotalQuantity;
+                count += localCount;
             }
         });
     }
