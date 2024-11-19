@@ -10,74 +10,121 @@
 #include <unordered_set>
 #include <thread>
 #include <mutex>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <immintrin.h>
+
+using namespace std;
+
+class FileView {
+    int handle;
+    char* data;
+    size_t size;
+
+public:
+    FileView(const string& fileName) {
+        handle = open(fileName.c_str(), O_RDONLY);
+        if (handle < 0) exit(1);
+        lseek(handle, 0, SEEK_END);
+        size = lseek(handle, 0, SEEK_CUR);
+        data = static_cast<char*>(mmap(nullptr, size, PROT_READ, MAP_SHARED, handle, 0));
+    }
+    ~FileView() {
+        munmap(data, size);
+        close(handle);
+    }
+    const char* begin() const { return data; }
+    const char* end() const { return data + size; }
+    size_t getSize() const { return size; }
+};
+
+static const char* findNl(const char* iter, const char* limit) {
+    auto pattern = _mm256_set1_epi8('\n');
+    while (iter + 32 <= limit) {
+        auto block = _mm256_lddqu_si256(reinterpret_cast<const __m256i*>(iter));
+        auto foundPattern = _mm256_cmpeq_epi8(block, pattern);
+        uint64_t matches = _mm256_movemask_epi8(foundPattern);
+
+        if (matches != 0)
+            return iter + (__builtin_ctzll(matches));
+        iter += 32;
+    }
+    while ((iter < limit) && (iter[0] != '\n')) ++iter;
+    return iter;
+}
+
+static const char* findBars(const char* iter, const char* limit, unsigned n) {
+    auto pattern = _mm256_set1_epi8('|');
+    while (iter + 32 <= limit) {
+        auto block = _mm256_lddqu_si256(reinterpret_cast<const __m256i*>(iter));
+        auto foundPattern = _mm256_cmpeq_epi8(block, pattern);
+        uint64_t matches = _mm256_movemask_epi8(foundPattern);
+
+        if (matches != 0) {
+            unsigned hits = __builtin_popcount(matches);
+            if (hits < n) {
+                n -= hits;
+            } else {
+                for (; n > 1; n--) matches &= matches - 1;
+                return iter + (__builtin_ctzll(matches));
+            }
+        }
+        iter += 32;
+    }
+    while (iter < limit) {
+        if (iter[0] == '|') {
+            if (!--n) return iter;
+        }
+        ++iter;
+    }
+    return iter;
+}
 
 std::mutex customerMutex;
 std::mutex orderMutex;
 std::mutex lineitemMutex;
 
 JoinQuery::JoinQuery(std::string lineitemPath, std::string orderPath, std::string customerPath)
-    : lineitemPath(lineitemPath), orderPath(orderPath), customerPath(customerPath),
-      lineitemFile(lineitemPath), orderFile(orderPath), customerFile(customerPath) {
-    if (!lineitemFile.is_open()) {
-        std::cerr << "Error: Unable to open lineitem file: " << lineitemPath << "\n";
-        exit(1);
-    }
-
-    if (!orderFile.is_open()) {
-        std::cerr << "Error: Unable to open orders file: " << orderPath << "\n";
-        exit(1);
-    }
-
-    if (!customerFile.is_open()) {
-        std::cerr << "Error: Unable to open customer file: " << customerPath << "\n";
-        exit(1);
-    }
-}
+    : lineitemPath(lineitemPath), orderPath(orderPath), customerPath(customerPath) {}
 
 size_t JoinQuery::avg(std::string segmentParam)
 {
     std::unordered_set<std::string> custkeys;
     std::unordered_map<std::string, std::string> orderToCustkey;
-    size_t thread_count = std::thread::hardware_concurrency() + 8;
+    size_t thread_count = std::thread::hardware_concurrency();
 
-    // Process the customer file in parallel
-    size_t customerFileSize = customerFile.seekg(0, std::ios::end).tellg();
+    FileView customerFile(customerPath);
+    FileView orderFile(orderPath);
+    FileView lineitemFile(lineitemPath);
+
+    size_t customerFileSize = customerFile.getSize();
     size_t customerChunkSize = customerFileSize / thread_count;
 
     std::vector<std::thread> customerThreads;
     for (size_t i = 0; i < thread_count; ++i) {
-        customerThreads.emplace_back([&, i, customerPath = this->customerPath] {
-            std::ifstream customerFileThread(customerPath);
-            if (!customerFileThread.is_open()) {
-                std::cerr << "Error: Unable to open customer file in thread: " << customerPath << "\n";
-                return;
-            }
+        customerThreads.emplace_back([&, i, segmentParam] {
             size_t start = i * customerChunkSize;
-            customerFileThread.seekg(start);
+            const char* customerData = customerFile.begin() + start;
             if (i > 0) {
-                char c;
-                while (customerFileThread.get(c) && c != '\n') {
-                    start++;
+                while (customerData < customerFile.end() && *customerData != '\n') {
+                    ++customerData;
                 }
+                ++customerData;
             }
             size_t end = (i == thread_count - 1) ? customerFileSize : (i + 1) * customerChunkSize;
-            std::string line;
             std::unordered_set<std::string> localCustkeys;
-            while (customerFileThread.tellg() < end && std::getline(customerFileThread, line)) {
-                std::stringstream ss(line);
-                std::string item;
-                std::string custkey, segment;
-                for (int colIndex = 0; std::getline(ss, item, '|'); ++colIndex) {
-                    if (colIndex == 0) {
-                        custkey = item;
-                    } else if (colIndex == 6) {
-                        segment = item;
-                        break;
-                    }
-                }
+            const char* customerEnd = customerFile.begin() + end;
+            while (customerData < customerEnd) {
+                const char* lineEnd = findNl(customerData, customerEnd);
+                const char* custkeyEnd = findBars(customerData, lineEnd, 1);
+                const char* segmentStart = findBars(customerData, lineEnd, 6) + 1;
+                const char* segmentEnd = findBars(segmentStart, lineEnd, 1);
+                std::string segment(segmentStart, segmentEnd);
                 if (segment == segmentParam) {
-                    localCustkeys.insert(custkey);
+                    localCustkeys.insert(std::string(customerData, custkeyEnd));
                 }
+                customerData = lineEnd + 1;
             }
             {
                 std::lock_guard<std::mutex> lock(customerMutex);
@@ -90,43 +137,33 @@ size_t JoinQuery::avg(std::string segmentParam)
         thread.join();
     }
 
-    size_t orderFileSize = orderFile.seekg(0, std::ios::end).tellg();
+    // Process the order file in parallel
+    size_t orderFileSize = orderFile.getSize();
     size_t orderChunkSize = orderFileSize / thread_count;
 
     std::vector<std::thread> orderThreads;
     for (size_t i = 0; i < thread_count; ++i) {
-        orderThreads.emplace_back([&, i, orderPath = this->orderPath] {
-            std::ifstream orderFileThread(orderPath);
-            if (!orderFileThread.is_open()) {
-                std::cerr << "Error: Unable to open order file in thread: " << orderPath << "\n";
-                return;
-            }
+        orderThreads.emplace_back([&, i] {
             size_t start = i * orderChunkSize;
-            orderFileThread.seekg(start);
+            const char* orderData = orderFile.begin() + start;
             if (i > 0) {
-                char c;
-                while (orderFileThread.get(c) && c != '\n') {
-                    start++;
+                while (orderData < orderFile.end() && *orderData != '\n') {
+                    ++orderData;
                 }
+                ++orderData;
             }
             size_t end = (i == thread_count - 1) ? orderFileSize : (i + 1) * orderChunkSize;
-            std::string line;
             std::unordered_map<std::string, std::string> localOrderToCustkey;
-            while (orderFileThread.tellg() < end && std::getline(orderFileThread, line)) {
-                std::stringstream ss(line);
-                std::string item;
-                std::string orderkey, custkey;
-                for (int colIndex = 0; std::getline(ss, item, '|'); ++colIndex) {
-                    if (colIndex == 0) {
-                        orderkey = item;
-                    } else if (colIndex == 1) {
-                        custkey = item;
-                        break;
-                    }
+            const char* orderEnd = orderFile.begin() + end;
+            while (orderData < orderEnd) {
+                const char* lineEnd = findNl(orderData, orderEnd);
+                const char* orderkeyEnd = findBars(orderData, lineEnd, 1);
+                const char* custkeyStart = orderkeyEnd + 1;
+                const char* custkeyEnd = findBars(custkeyStart, lineEnd, 1);
+                if (custkeys.find(std::string(custkeyStart, custkeyEnd)) != custkeys.end()) {
+                    localOrderToCustkey[std::string(orderData, orderkeyEnd)] = std::string(custkeyStart, custkeyEnd);
                 }
-                if (custkeys.find(custkey) != custkeys.end()) {
-                    localOrderToCustkey[orderkey] = custkey;
-                }
+                orderData = lineEnd + 1;
             }
             {
                 std::lock_guard<std::mutex> lock(orderMutex);
@@ -139,47 +176,36 @@ size_t JoinQuery::avg(std::string segmentParam)
         thread.join();
     }
 
-    size_t lineitemFileSize = lineitemFile.seekg(0, std::ios::end).tellg();
+    size_t lineitemFileSize = lineitemFile.getSize();
     size_t lineitemChunkSize = lineitemFileSize / thread_count;
 
     double totalQuantity = 0.0;
     size_t count = 0;
     std::vector<std::thread> lineitemThreads;
     for (size_t i = 0; i < thread_count; ++i) {
-        lineitemThreads.emplace_back([&, i, lineitemPath = this->lineitemPath] {
-            std::ifstream lineitemFileThread(lineitemPath);
-            if (!lineitemFileThread.is_open()) {
-                std::cerr << "Error: Unable to open lineitem file in thread: " << lineitemPath << "\n";
-                return;
-            }
+        lineitemThreads.emplace_back([&, i] {
             size_t start = i * lineitemChunkSize;
-            lineitemFileThread.seekg(start);
+            const char* lineitemData = lineitemFile.begin() + start;
             if (i > 0) {
-                char c;
-                while (lineitemFileThread.get(c) && c != '\n') {
-                    start++;
+                while (lineitemData < lineitemFile.end() && *lineitemData != '\n') {
+                    ++lineitemData;
                 }
+                ++lineitemData;
             }
             size_t end = (i == thread_count - 1) ? lineitemFileSize : (i + 1) * lineitemChunkSize;
-            std::string line;
             double localTotalQuantity = 0.0;
             size_t localCount = 0;
-            while (lineitemFileThread.tellg() < end && std::getline(lineitemFileThread, line)) {
-                std::stringstream ss(line);
-                std::string item;
-                std::string orderkey, quantity;
-                for (int colIndex = 0; std::getline(ss, item, '|'); ++colIndex) {
-                    if (colIndex == 0) {
-                        orderkey = item;
-                    } else if (colIndex == 4) {
-                        quantity = item;
-                        break;
-                    }
-                }
-                if (orderToCustkey.find(orderkey) != orderToCustkey.end()) {
-                    localTotalQuantity += std::stod(quantity);
+            const char* lineitemEnd = lineitemFile.begin() + end;
+            while (lineitemData < lineitemEnd) {
+                const char* lineEnd = findNl(lineitemData, lineitemEnd);
+                const char* orderkeyEnd = findBars(lineitemData, lineEnd, 1);
+                const char* quantityStart = findBars(lineitemData, lineEnd, 4) + 1;
+                const char* quantityEnd = findBars(quantityStart, lineEnd, 1);
+                if (orderToCustkey.find(std::string(lineitemData, orderkeyEnd)) != orderToCustkey.end()) {
+                    localTotalQuantity += std::stod(std::string(quantityStart, quantityEnd));
                     localCount++;
                 }
+                lineitemData = lineEnd + 1;
             }
             {
                 std::lock_guard<std::mutex> lock(lineitemMutex);

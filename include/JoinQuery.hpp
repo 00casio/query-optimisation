@@ -1,5 +1,6 @@
 #include <string>
 #include <fstream>
+#include <iostream>
 
 //---------------------------------------------------------------------------
 class JoinQuery
@@ -49,9 +50,6 @@ class JoinQuery
     std::string lineitemPath;
     std::string orderPath;
     std::string customerPath;
-    std::ifstream lineitemFile;
-    std::ifstream orderFile;
-    std::ifstream customerFile;
 
 };
 //---------------------------------------------------------------------------
