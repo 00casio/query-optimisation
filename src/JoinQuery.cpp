@@ -65,14 +65,18 @@ size_t JoinQuery::avg(std::string segmentParam)
             while (customerFileThread.tellg() < end && std::getline(customerFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
-                std::string columns[8];
-                int colIndex = 0;
-                while (std::getline(ss, item, '|') && colIndex < 8) {
-                    columns[colIndex++] = item;
+                std::string custkey, segment;
+                for (int colIndex = 0; std::getline(ss, item, '|'); ++colIndex) {
+                    if (colIndex == 0) {
+                        custkey = item;
+                    } else if (colIndex == 6) {
+                        segment = item;
+                        break;
+                    }
                 }
-                if (colIndex > 6 && columns[6] == segmentParam) {
+                if (segment == segmentParam) {
                     std::lock_guard<std::mutex> lock(customerMutex);
-                    custkeys.insert(columns[0]);
+                    custkeys.insert(custkey);
                 }
             }
         });
@@ -106,14 +110,18 @@ size_t JoinQuery::avg(std::string segmentParam)
             while (orderFileThread.tellg() < end && std::getline(orderFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
-                std::string columns[2];
-                int colIndex = 0;
-                while (std::getline(ss, item, '|') && colIndex < 2) {
-                    columns[colIndex++] = item;
+                std::string orderkey, custkey;
+                for (int colIndex = 0; std::getline(ss, item, '|'); ++colIndex) {
+                    if (colIndex == 0) {
+                        orderkey = item;
+                    } else if (colIndex == 1) {
+                        custkey = item;
+                        break;
+                    }
                 }
-                if (colIndex > 1 && custkeys.find(columns[1]) != custkeys.end()) {
+                if (custkeys.find(custkey) != custkeys.end()) {
                     std::lock_guard<std::mutex> lock(orderMutex);
-                    orderToCustkey[columns[0]] = columns[1];
+                    orderToCustkey[orderkey] = custkey;
                 }
             }
         });
@@ -149,14 +157,18 @@ size_t JoinQuery::avg(std::string segmentParam)
             while (lineitemFileThread.tellg() < end && std::getline(lineitemFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
-                std::string columns[5]; 
-                int colIndex = 0;
-                while (std::getline(ss, item, '|') && colIndex < 5) {
-                    columns[colIndex++] = item;
+                std::string orderkey, quantity;
+                for (int colIndex = 0; std::getline(ss, item, '|'); ++colIndex) {
+                    if (colIndex == 0) {
+                        orderkey = item;
+                    } else if (colIndex == 4) {
+                        quantity = item;
+                        break;
+                    }
                 }
-                if (colIndex > 1 && orderToCustkey.find(columns[0]) != orderToCustkey.end()) {
+                if (orderToCustkey.find(orderkey) != orderToCustkey.end()) {
                     std::lock_guard<std::mutex> lock(lineitemMutex);
-                    totalQuantity += std::stod(columns[4]);
+                    totalQuantity += std::stod(quantity);
                     count++;
                 }
             }
