@@ -65,12 +65,12 @@ size_t JoinQuery::avg(std::string segmentParam)
             while (customerFileThread.tellg() < end && std::getline(customerFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
-                std::vector<std::string> columns;
-                columns.reserve(8); // Assuming there are at least 8 columns
-                while (std::getline(ss, item, '|')) {
-                    columns.push_back(item);
+                std::string columns[8];
+                int colIndex = 0;
+                while (std::getline(ss, item, '|') && colIndex < 8) {
+                    columns[colIndex++] = item;
                 }
-                if (columns.size() > 6 && columns[6] == segmentParam) {
+                if (colIndex > 6 && columns[6] == segmentParam) {
                     std::lock_guard<std::mutex> lock(customerMutex);
                     custkeys.insert(columns[0]);
                 }
@@ -106,12 +106,12 @@ size_t JoinQuery::avg(std::string segmentParam)
             while (orderFileThread.tellg() < end && std::getline(orderFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
-                std::vector<std::string> columns;
-                columns.reserve(2);
-                while (std::getline(ss, item, '|')) {
-                    columns.push_back(item);
+                std::string columns[2];
+                int colIndex = 0;
+                while (std::getline(ss, item, '|') && colIndex < 2) {
+                    columns[colIndex++] = item;
                 }
-                if (columns.size() > 1 && custkeys.find(columns[1]) != custkeys.end()) {
+                if (colIndex > 1 && custkeys.find(columns[1]) != custkeys.end()) {
                     std::lock_guard<std::mutex> lock(orderMutex);
                     orderToCustkey[columns[0]] = columns[1];
                 }
@@ -149,12 +149,12 @@ size_t JoinQuery::avg(std::string segmentParam)
             while (lineitemFileThread.tellg() < end && std::getline(lineitemFileThread, line)) {
                 std::stringstream ss(line);
                 std::string item;
-                std::vector<std::string> columns;
-                columns.reserve(5); 
-                while (std::getline(ss, item, '|')) {
-                    columns.push_back(item);
+                std::string columns[5]; 
+                int colIndex = 0;
+                while (std::getline(ss, item, '|') && colIndex < 5) {
+                    columns[colIndex++] = item;
                 }
-                if (columns.size() > 1 && orderToCustkey.find(columns[0]) != orderToCustkey.end()) {
+                if (colIndex > 1 && orderToCustkey.find(columns[0]) != orderToCustkey.end()) {
                     std::lock_guard<std::mutex> lock(lineitemMutex);
                     totalQuantity += std::stod(columns[4]);
                     count++;
