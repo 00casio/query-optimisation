@@ -222,7 +222,7 @@ size_t JoinQuery::avg(std::string segmentParam)
     if (count == 0) return 0;
     return static_cast<size_t>((totalQuantity / count) * 100);
 }
-
+// --------------------------------------------------------------------------------------------------------------------
 size_t JoinQuery::lineCount(std::string rel)
 {
     std::ifstream relation(rel);
