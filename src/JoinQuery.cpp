@@ -92,7 +92,7 @@ size_t JoinQuery::avg(std::string segmentParam)
 {
     std::unordered_set<std::string> custkeys;
     std::unordered_map<std::string, std::string> orderToCustkey;
-    size_t thread_count = std::thread::hardware_concurrency();
+    size_t thread_count = 3;
 
     FileView customerFile(customerPath);
     FileView orderFile(orderPath);
